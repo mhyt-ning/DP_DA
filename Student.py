@@ -85,11 +85,7 @@ class Student:
             os.makedirs(save_path)
 
         model.save_pretrained(save_path)
-
-        print("\n")
-        print("MODELS SAVED")
-        print("\n")
-    
+        
     def load_models(self):
     
         path_name = "model_"
