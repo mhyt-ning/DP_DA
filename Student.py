@@ -84,7 +84,6 @@ class Student:
         if not os.path.exists(save_path):
             os.makedirs(save_path)
 
-        # 保存模型
         model.save_pretrained(save_path)
 
         print("\n")
