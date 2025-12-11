@@ -78,9 +78,9 @@ class Student:
         torch.save(self.model.state_dict(), "Models/" + "student_model")
 
     def save_models(self,model,model_name):
-        save_path = f'{self.args.save_path}/{model_name}'  # 每个模型的保存路径
+        save_path = f'{self.args.save_path}/{model_name}' 
 
-        # 检查目录是否存在，如果不存在则创建
+    
         if not os.path.exists(save_path):
             os.makedirs(save_path)
 
@@ -97,5 +97,5 @@ class Student:
     
         self.model = self.model.from_pretrained(f"{self.args.save_path}/student")
         self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-        self.model = self.model.to(self.device)  # 移动模型到指定设备
+        self.model = self.model.to(self.device)  
 

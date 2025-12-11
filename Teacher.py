@@ -46,8 +46,6 @@ class Teacher:
             model = RobertaForSequenceClassification.from_pretrained(
                 '../model/roberta-large',
                 num_labels=2)
-            # model = RobertaForSequenceClassification.from_pretrained('../model/roberta-large',
-            #                                                  num_labels=2)
             self.models[index] = model
 
     def addnoise(self, x):
@@ -67,7 +65,7 @@ class Teacher:
 
         return count
 
-    def train(self, train_index, train_loaders, test_loaders, test_train, test_val):
+    def train(self, train_index, train_loaders, test_loaders, test_train):
         """Function to train all teacher models.
            Args:
                 dataset[torch tensor]: Dataset used to train teachers in format (image,label)
@@ -123,7 +121,7 @@ class Teacher:
         accuracy = accuracy_score(true_labels, predictions)
         report = classification_report(true_labels, predictions)
 
-        print("对于student_train:")
+        print("for student_train:")
         print(f'Teacher {train_index}, Accuracy: {accuracy:.4f}')
         print(report)
 
@@ -154,7 +152,7 @@ class Teacher:
         accuracy = accuracy_score(true_labels2, predictions2)
         report = classification_report(true_labels2, predictions2)
 
-        print("对于teacher_test:")
+        print("for teacher_test:")
         print(f'Teacher {train_index}, Accuracy: {accuracy:.4f}')
         print(report)
 
@@ -215,7 +213,6 @@ class Teacher:
                 counts[index][1] += val[1]
                 index += 1
 
-        # 将counts转换为概率分布
         # probabilities = torch.nn.functional.softmax(counts, dim=1)
 
         index = 0
@@ -229,13 +226,10 @@ class Teacher:
         return counts
 
     def save_models(self, model, model_name):
-        save_path = f'./model/{model_name}'  # 每个模型的保存路径
+        save_path = f'./model/{model_name}' 
 
-        # 检查目录是否存在，如果不存在则创建
         if not os.path.exists(save_path):
             os.makedirs(save_path)
-
-        # 保存模型
         model.save_pretrained(save_path)
 
         print("\n")
@@ -274,7 +268,7 @@ class Teacher:
         for batch in counts:
             predictions_nonoise.append(torch.tensor(batch.max(dim=0)[1].long()).clone().detach())
 
-        # 加噪之后的概率分布
+
         probability = self.aggregate_probability(model_probability, len(data))
         # print(f'1：probability：{probability}')
         probability = probability.apply_(self.addnoise)

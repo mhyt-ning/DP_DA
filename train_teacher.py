@@ -1,10 +1,10 @@
 # Required imports
 import torch, gc
 from Teacher import Teacher
-from data import load_data, NoisyDataset
+from data import load_teacher_data, NoisyDataset
 from util import accuracy, split
 from Student import Student
-import syft as sy
+# import syft as sy
 # import syft.frameworks.torch.dp.pate as pate
 from my_framework import pate
 from transformers import AutoTokenizer
@@ -20,18 +20,9 @@ import pandas as pd
 from sklearn.metrics import accuracy_score, classification_report
 from data import TextDataset
 
-# import argparse
-
-# parser = argparse.ArgumentParser(description="使用指定参数运行训练。")
-# parser.add_argument('--target_epsilon', type=str, default='4', help='训练数据路径')
-# parser.add_argument('--n_teachers', type=int, default=15)
-
-# args = parser.parse_args()
-
-target_epsilon = '4'
+target_epsilon = '1'
 print(f'target_epsilon={target_epsilon}')
 
-n_teachers=15
 
 class Arguments:
 
@@ -46,11 +37,10 @@ class Arguments:
         self.no_cuda = False
         self.seed = 1
         self.log_interval = 30
-        self.n_teachers = n_teachers
+        self.n_teachers = 15
         self.save_model = False
-        self.sigma = 6
+        self.sigma = 21.1
         self.save_path = './model/model_' + str(target_epsilon)
-        # self.save_path='./model/model_laplace_4'
 
 
 args = Arguments()
@@ -70,25 +60,12 @@ class PATE(GaussianMechanism):
         self.params = {'sigma': sigma}
 
 
-class PATE2(LaplaceMechanism):
-    def __init__(self, b, m, Binary, name='Laplace'):
-        # sigma is the std of the Gaussian noise added to the voting scores
-        if Binary:
-            # This is a binary classification task
-            sensitivity = 1
-        else:  # for the multiclass case, the L2 sensitivity is sqrt(2)
-            sensitivity = np.sqrt(2)
-        LaplaceMechanism.__init__(self, b=b / sensitivity / np.sqrt(m), name=name)
-
-        self.params = {'b': b}
-
 
 teacher_n=Teacher(args,n_teachers=args.n_teachers,is_init=0,sigma=args.sigma)
 
 
-#____________________教师阶段________________________
-t_train_loader,t_test_loader, gen_loader, student_loader= load_data(n_teachers=args.n_teachers, batch_size=args.batchsize)
-s_train_loader, s_test_loader = split(student_loader, split=partition1)
+#____________________teacher________________________
+t_train_loader,t_test_loader, gen_loader= load_teacher_data(n_teachers=args.n_teachers, batch_size=args.batchsize,target_epsilon=target_epsilon)
 
 
 
@@ -101,7 +78,7 @@ outputs2 = []
 # Declare and train teachers on MNIST training data
 for i in range(args.n_teachers):
     teacher = Teacher(args, n_teachers=1, sigma=args.sigma)
-    output, output2 = teacher.train(i, t_train_loader, t_test_loader, gen_loader,s_test_loader)
+    output, output2 = teacher.train(i, t_train_loader, t_test_loader, gen_loader)
     outputs.append(output)
     outputs2.append(output2)
 
@@ -120,7 +97,7 @@ for i,batch in enumerate(t_test_loader):
     attention_mask = batch['attention_mask']
     labels = batch['label'].to(device)
     teacher_targets2.append(labels)
-    # print("outputs in batch", i, ":", outputs)
+    # print("Labels in batch", i, ":", labels)
     
     mid_output=[]
     for j in range(args.n_teachers):
@@ -140,25 +117,21 @@ for i,batch in enumerate(t_test_loader):
             if result_array[j][k] == labels[k]:
                 same_count += 1 
         total_right=total_right+same_count
-        # print(same_count/len(outputs))
+        # print(same_count/len(labels))
         # print(result_array[j])
     # print("teacher result for batch", i)
-    # print(total_right/(len(outputs)*args.n_teachers))
+    # print(total_right/(len(labels)*args.n_teachers))
 
     noisy_output = teacher_n.predict(input_ids,attention_mask,mid_output)
     noisy_outputs2.append(noisy_output)
     predict2.append(noisy_output["predictions"])
     predict_nonoise2.append(noisy_output["predictions_nonoise"])
     counts2.append(noisy_output["model_counts"])
-    # print(f'teacher_targets2:{teacher_targets2[i]}')
-    # print(f'predict2:{predict2[i]}')
-    # print(f'predict_nonoise2:{predict_nonoise2[i]}')
 
-print("对于teacher-test")
-print("教师模型聚合未加噪时Accuracy: ", accuracy(predict_nonoise2, teacher_targets2))
-print("教师模型聚合加噪后Accuracy: ", accuracy(predict2, teacher_targets2))
+print("for teacher-test")
+print("no_noisy_Accuracy: ", accuracy(predict_nonoise2, teacher_targets2))
+print("after_noisy_Accuracy: ", accuracy(predict2, teacher_targets2))
 
-# breakpoint()  # 设置断点
 
 # # Evaluate Teacher accuracy
 need_texts=[]
@@ -189,7 +162,6 @@ for i, batch in enumerate(gen_loader):
 
 
     for k in range(len(input_ids)):
-        # 如果需要将input_ids转换回文本，可以调用tokenizer.decode
         text = tokenizer.decode(input_ids[k], skip_special_tokens=True)
         need_texts.append(text)
         probability_list.append(probability_distribution[i][k])
@@ -199,8 +171,7 @@ texts_probability = pd.DataFrame({
     'probability': probability_list
 })
 texts_probability.to_csv('train_test/eps'+str(target_epsilon)+'/texts_probability.csv',index=False)
-print("texts_probability中的内容保存成功")
-# breakpoint()  # 设置断点
+print("texts_probability save")
 
 texts_probability=pd.read_csv('train_test/eps'+str(target_epsilon)+'/texts_probability.csv').sample(frac=1, random_state=42).reset_index(drop=True)
 
@@ -213,7 +184,7 @@ for i in range(len(true_probabilities)):
 
 texts_probability["true_probability"]=true_probabilities
 
-# 筛选特定类别的样本，并按照True概率降序排序
+
 k=100
 sorted_samples = texts_probability.sort_values(by='true_probability', ascending=False)
 top_samples = sorted_samples.head(k)
@@ -238,110 +209,5 @@ for i in range(len(df)):
 
 df.to_csv('train_test/eps'+str(target_epsilon)+'/student_data.csv',index=False)
 
-student_path = 'train_test/eps'+str(target_epsilon)+'/student_data.csv'
-student_data = pd.read_csv(student_path).sample(frac=1, random_state=None)
-student_texts = student_data['input'].tolist()
-student_labels = student_data['output'].tolist()
+print("finish")
 
-for i in range(len(student_texts)):
-    student_texts[i] = str(student_texts[i]).lower()
-    if str(student_labels[i]) == 'True':
-        student_labels[i] = 1
-    else:
-        student_labels[i] = 0
-
-student_dataset = TextDataset(student_texts, student_labels)
-student_loader = DataLoader(student_dataset, args.batchsize, shuffle=True)
-
-s_train_loader, s_test_loader = split(student_loader, split=partition1)
-
-#____________________学生阶段________________________
-print("\n")
-print("\n")
-print("Training Student")
-
-num=0
-device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-for i, batch in enumerate(s_train_loader):
-    input_ids = batch['input_ids']
-    attention_mask = batch['attention_mask']
-    labels = batch['label'].to(device)
-
-    for k in range(len(labels)):
-        print(labels[k])
-        # 如果需要将input_ids转换回文本，可以调用tokenizer.decode
-        if labels[k]==1:
-            num+=1
-
-
-
-m=num
-print(f'学生训练集大小：{len(s_train_loader) * args.batchsize}；学生测试集大小：{len(s_test_loader) * args.batchsize}')
-
-student = Student(args)
-N = NoisyDataset(s_train_loader, teacher_n.predict)
-student.train(N)
-
-results = []
-targets = []
-
-total = 0.0
-correct = 0.0
-
-for batch in t_test_loader:
-    input_ids = batch['input_ids'].to(device)
-    attention_mask = batch['attention_mask'].to(device)
-    labels = batch['label'].to(device)
-    predict_lol = student.predict(input_ids,attention_mask).to(device)
-    predict_lol=torch.max(predict_lol, 1)[1]
-    correct += float((predict_lol == (labels)).sum().item())
-    total += float(labels.size(0))
-
-print("学生对于teacher_test, Private Baseline: ", (correct / total) * 100)
-
-total = 0.0
-correct = 0.0
-
-device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-for batch in s_test_loader:
-    input_ids = batch['input_ids'].to(device)
-    attention_mask = batch['attention_mask'].to(device)
-    labels = batch['label'].to(device)
-
-    predict_lol = student.predict(input_ids, attention_mask).to(device)
-    predict_lol = torch.max(predict_lol, 1)[1]
-    correct += float((predict_lol == (labels)).sum().item())
-    total += float(labels.size(0))
-
-    results.extend(predict_lol.cpu().numpy())
-    targets.extend(labels.cpu().numpy())
-
-print("Private Baseline: ", (correct / total) * 100)
-s_accuracy = accuracy_score(targets, results)
-s_report = classification_report(targets,results)
-
-print("对于Student_test:")
-print(f'Student, Accuracy: {s_accuracy:.4f}')
-print(s_report)
-
-# counts_lol = torch.stack(counts).contiguous().view(args.n_teachers, -1)
-# predict_lol = torch.tensor(predict).view(len(counts_lol[1]))
-# print("Laplace噪声:")
-# # data_dep_eps, data_ind_eps = teacher.analyze(counts_lol, predict_lol, moments=5)
-# print("Epsilon: ", teacher.analyze(counts_lol, predict_lol,moments=8))
-
-# m = len(s_train_loader) * args.batchsize
-
-pate_mech = PATE(sigma=args.sigma, m=m, Binary=True, name='PATE')
-eps = pate_mech.get_approxDP(delta)
-
-# pate_mech2 = PATE2(b=1.23,m=m,Binary=True, name='Laplace')
-# eps2 = pate_mech2.get_approxDP(delta)
-
-# print(f'教师数量:{args.n_teachers},b=0.5')
-print(f'教师数量:{args.n_teachers},sigma={args.sigma}')
-print(f'学生访问教师次数:{m}')
-print('autodp: ')
-print(f'eps:{eps},delta:{delta}')
-print(f'学生模型存储路径：{args.save_path}')
-# print(f'eps:{eps2},delta:{delta}')

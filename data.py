@@ -22,7 +22,6 @@ class TextDataset(Dataset):
         label = self.labels[idx]
 
         
-        # tokenizer = AutoTokenizer.from_pretrained('../model/roberta-large')
         encoding = self.tokenizer(text, max_length=512, truncation=True, padding='max_length')
         input_ids = encoding['input_ids']
         attention_mask = encoding['attention_mask']
@@ -34,28 +33,11 @@ class TextDataset(Dataset):
         }
 
 
-def load_data(n_teachers, batch_size):
-    """Helper function used to load the train/test data.
-       Args:
-           train[boolean]: Indicates whether its train/test data.
-           batch_size[int]: Batch size
-    """
-    # 数据加载与预处理
-    # 假设您有一个包含文本和标签的数据集，文本已经分词并存储在texts列表中，标签存储在labels列表中。\
+def load_teacher_data(n_teachers, batch_size, target_epsilon):
 
-    # data1=pd.read_csv('task_data/train_data_wei_hand.csv').sample(frac=1, random_state=42)
-    # task_data=pd.read_csv('task_data/task_data_3.5.csv').sample(frac=1, random_state=42)
-    # gen_data_teacher =data1[:10000]
-    # student_false_data=task_data[10000:11000]
-    # gen_data_student=task_data[11000:]
+    teacher_path = 'train_test/train_test_3.5.csv' 
+    gen_path='train_test/eps'+str(target_epsilon)+'/gen_data_teacher.csv'
 
-    # gen_data_teacher.to_csv('train_test/gen_data_teacher.csv',index=False)
-    # student_false_data.to_csv('train_test/student_false_data.csv',index=False)
-    # gen_data_student.to_csv('train_test/gen_data_student.csv',index=False)
-
-    teacher_path = 'train_test/train_test_3.5.csv'
-    gen_path = 'train_test/gen_data_teacher.csv'
-    # student_path='train_test/student_train_addprefix.csv'
     data = pd.read_csv(teacher_path).sample(frac=1, random_state=42)
     train_data = data[:600]
     train_texts = train_data['input'].tolist()
@@ -70,16 +52,10 @@ def load_data(n_teachers, batch_size):
     gen_texts = gen_data['input'].tolist()
     gen_labels = gen_data['output'].tolist()
 
-    student_path = 'train_test/student_data.csv'
-    student_data = pd.read_csv(student_path).sample(frac=1, random_state=42)
-    student_texts = student_data['input'].tolist()
-    student_labels = student_data['output'].tolist()
 
-
-    print(f'教师训练数据集：{teacher_path}，大小：{len(train_data)}')
-    print(f'教师测试数据集：{teacher_path}，大小：{len(test_data)}')
-    print(f'教师预测数据集：{gen_path}，大小：{len(gen_data)}')
-    # print(f'学生训练数据集：{student_path}')
+    print(f'{teacher_path}, {len(train_data)}')
+    print(f'{teacher_path},{len(test_data)}')
+    print(f'{gen_path},{len(gen_data)}')
 
     for i in range(len(train_texts)):
         train_texts[i] = str(train_texts[i]).lower()
@@ -102,42 +78,31 @@ def load_data(n_teachers, batch_size):
         else:
             gen_labels[i] = 0
 
-    for i in range(len(student_texts)):
-        student_texts[i] = str(student_texts[i]).lower()
-        if str(student_labels[i]) == 'True':
-            student_labels[i] = 1
-        else:
-            student_labels[i] = 0
 
     t_train_datasets = []
     t_test_datasets = []
     for i in range(n_teachers):
         train_len = len(train_texts) // n_teachers
         test_len = len(test_texts) // n_teachers
-        print(f'第{i}个教师，训练集长度：{train_len}，测试集长度：{test_len}')
+        print(f'no {i}: {train_len}, {test_len}')
         t_train_datasets.append(TextDataset(train_texts[i * train_len:(i + 1) * train_len],
                                             train_labels[i * train_len:(i + 1) * train_len]))
         t_test_datasets.append(
             TextDataset(test_texts[i * test_len:(i + 1) * test_len], test_labels[i * test_len:(i + 1) * test_len]))
 
-    # train_loaders教师训练，test_loaders教师测试
     t_train_loader = []
     t_test_loader = []
     print("batch_size: ", (batch_size))
     for i in range(n_teachers):
         t_train_loader.append(DataLoader(t_train_datasets[i], batch_size, shuffle=True))
-        t_test_loader.append(DataLoader(t_test_datasets[i], batch_size, shuffle=False))
+        t_test_loader.append(DataLoader(t_test_datasets[i], batch_size, shuffle=True))
 
     gen_dataset = TextDataset(gen_texts, gen_labels)
     gen_loader = DataLoader(gen_dataset, batch_size, shuffle=False)
 
-    # # 用于学生训练与测试
-    student_dataset = TextDataset(student_texts, student_labels)
-    student_loader = DataLoader(student_dataset, batch_size, shuffle=False)
-
     test_dataset = TextDataset(test_texts, test_labels)
     test_loader = DataLoader(test_dataset, batch_size, shuffle=False)
-    return t_train_loader, test_loader, gen_loader,student_loader
+    return t_train_loader, test_loader, gen_loader
 
 
 class NoisyDataset(Dataset):
@@ -172,7 +137,6 @@ class NoisyDataset(Dataset):
         for batch in self.dataloader:
             test_input_ids.append(batch['input_ids'])
             test_mask.append(batch['attention_mask'])
-            # test_label.append(torch.tensor(self.noisy_predict[i]))
             test_label.append(batch['label'])
             i += 1
         print("noisy data complete")
